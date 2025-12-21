@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg
+.cache
+.mypy_cache
+.pytest_cache
+
+# Virtual Environment
+venv/
+env/
+.env
+
+# Django
+db.sqlite3
+/media/
+/static/
+
+# Next.js / Node
+node_modules/
+.next/
+out/
+
+# OS generated files
+.DS_Store
+Thumbs.db
