@@ -30,9 +30,6 @@ class AttributeSerializer(serializers.ModelSerializer):
 # === Атрибуты Клиента (EAV) ===
 
 class ClientAttributeSerializer(serializers.ModelSerializer):
-    """
-    Сериализатор для работы с атрибутами клиента (Вес, Рост и т.д.)
-    """
     attribute_slug = serializers.ReadOnlyField(source='attribute.slug')
     attribute_name = serializers.ReadOnlyField(source='attribute.name')
     attribute_type = serializers.ReadOnlyField(source='attribute.attr_type')
@@ -45,7 +42,7 @@ class ClientAttributeSerializer(serializers.ModelSerializer):
 # === Чат и Сессии ===
 
 class SessionCommentSerializer(serializers.ModelSerializer):
-    author_name = serializers.ReadOnlyField(source='author.username') # Или имя профиля, если есть
+    author_name = serializers.ReadOnlyField(source='author.username')
     is_me = serializers.SerializerMethodField()
 
     class Meta:
@@ -60,10 +57,6 @@ class SessionCommentSerializer(serializers.ModelSerializer):
         return False
 
 class WorkSessionSerializer(serializers.ModelSerializer):
-    """
-    Основной сериализатор сессии.
-    Включает в себя последние комментарии (или все).
-    """
     comments = SessionCommentSerializer(many=True, read_only=True)
     client_name = serializers.ReadOnlyField(source='client.name')
 
@@ -80,13 +73,10 @@ class WorkSessionSerializer(serializers.ModelSerializer):
 
 class ClientSerializer(serializers.ModelSerializer):
     """
-    Полный профиль клиента для просмотра и редактирования.
+    Полный профиль клиента.
     """
     email = serializers.EmailField(source='user.email', read_only=True)
     attributes = ClientAttributeSerializer(many=True, read_only=True)
-    
-    # Для записи атрибутов можно использовать отдельный endpoint или переопределить update,
-    # но для MVP часто удобнее редактировать атрибуты отдельно.
     
     categories_details = CategorySerializer(source='categories', many=True, read_only=True)
     tags_details = TagSerializer(source='tags', many=True, read_only=True)
@@ -95,6 +85,7 @@ class ClientSerializer(serializers.ModelSerializer):
         model = Client
         fields = [
             'id', 'coach', 'name', 'photo', 'email', 
+            'gender', 'birth_date',  # <--- Добавлено
             'categories', 'categories_details',
             'tags', 'tags_details',
             'attributes',
@@ -104,8 +95,7 @@ class ClientSerializer(serializers.ModelSerializer):
 
 class ClientCreateSerializer(serializers.ModelSerializer):
     """
-    Сериализатор СПЕЦИАЛЬНО для создания клиента.
-    Генерирует юзера и пароль, отправляет письмо.
+    Сериализатор создания: Email -> User + Client + Password Email.
     """
     email = serializers.EmailField(write_only=True)
     generated_password = serializers.CharField(read_only=True)
@@ -114,6 +104,7 @@ class ClientCreateSerializer(serializers.ModelSerializer):
         model = Client
         fields = [
             'id', 'name', 'photo', 'categories', 'tags', 
+            'gender', 'birth_date', # <--- Добавлено, теперь их можно слать при создании
             'email', 'generated_password'
         ]
 
@@ -128,10 +119,8 @@ class ClientCreateSerializer(serializers.ModelSerializer):
         password = User.objects.make_random_password(length=10)
 
         with transaction.atomic():
-            # 1. Создаем Юзера
             user = User.objects.create_user(username=email, email=email, password=password)
             
-            # 2. Создаем Клиента (Owner - текущий юзер, т.е. Коуч)
             client = Client.objects.create(
                 user=user,
                 coach=self.context['request'].user, 
@@ -141,7 +130,6 @@ class ClientCreateSerializer(serializers.ModelSerializer):
             client.categories.set(categories)
             client.tags.set(tags)
 
-            # 3. Отправляем письмо
             try:
                 send_mail(
                     subject='Доступ к платформе FitCare',

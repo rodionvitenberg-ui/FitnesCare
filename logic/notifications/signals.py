@@ -1,14 +1,14 @@
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-# Используем apps.get_model, чтобы избежать Circular Import (так как models.py может ссылаться друг на друга)
-from django.apps import apps
 from .models import Notification
+from clients.models import WorkSession, SessionComment
 
-@receiver(post_save, sender='clients.WorkSession')
+@receiver(post_save, sender=WorkSession)
 def notify_client_on_new_session(sender, instance, created, **kwargs):
     """
     Когда создается новая тренировка/сессия, уведомляем Клиента.
     """
+    # created=True означает, что объект только что создан (а не отредактирован)
     if created and instance.client.user:
         Notification.objects.create(
             recipient=instance.client.user,
@@ -18,31 +18,32 @@ def notify_client_on_new_session(sender, instance, created, **kwargs):
             content_object=instance
         )
 
-@receiver(post_save, sender='clients.SessionComment')
+@receiver(post_save, sender=SessionComment)
 def notify_on_new_comment(sender, instance, created, **kwargs):
     """
     Уведомления о новых сообщениях в чате сессии.
-    Определяем, кто написал, и шлем уведомление второй стороне.
     """
     if created:
         session = instance.session
-        client_user = session.client.user
-        coach_user = session.client.coach
         
-        # Автор комментария
+        # Получаем участников
+        client_user = session.client.user
+        coach_user = session.client.coach  # Владелец карточки клиента - это тренер
+        
+        # Кто написал комментарий?
         author = instance.author
         
-        # Если написал Тренер -> шлем Клиенту
+        # 1. Если написал Тренер -> шлем Клиенту
         if author == coach_user and client_user:
             Notification.objects.create(
                 recipient=client_user,
                 category='message',
-                title=f"Сообщение от тренера",
+                title="Сообщение от тренера",
                 message=f"К тренировке '{session.title}': {instance.text[:50]}...",
-                content_object=session # Ссылка ведет на саму сессию
+                content_object=session  # Ссылка ведет на саму сессию
             )
             
-        # Если написал Клиент -> шлем Тренеру
+        # 2. Если написал Клиент -> шлем Тренеру
         elif author == client_user and coach_user:
             Notification.objects.create(
                 recipient=coach_user,
