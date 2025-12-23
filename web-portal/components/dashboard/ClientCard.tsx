@@ -1,22 +1,24 @@
 'use client';
 
-import React from 'react';
+import React, { forwardRef } from 'react';
 import { Client } from '@/services/dashboard';
 import { MoreHorizontal, Activity } from 'lucide-react';
 
 interface Props {
   client: Client;
-  isActive: boolean; // Выбрана ли эта карточка сейчас
+  isActive: boolean;
   onClick: () => void;
 }
 
-export default function ClientCard({ client, isActive, onClick }: Props) {
+// Используем forwardRef, чтобы родитель мог получить доступ к DOM-элементу для авто-скролла
+const ClientCard = forwardRef<HTMLDivElement, Props>(({ client, isActive, onClick }, ref) => {
   return (
     <div 
+      ref={ref}
       onClick={onClick}
       className={`
         group relative p-5 rounded-3xl border-2 cursor-pointer transition-all duration-300
-        hover:shadow-xl hover:-translate-y-1
+        hover:shadow-xl hover:-translate-y-1 flex flex-col justify-between h-full min-h-[240px]
         ${isActive 
           ? 'border-black bg-black text-white' 
           : 'border-transparent bg-white text-black shadow-sm hover:border-gray-200'
@@ -49,7 +51,7 @@ export default function ClientCard({ client, isActive, onClick }: Props) {
       </div>
 
       {/* Progress Bar */}
-      <div className="space-y-2">
+      <div className="space-y-2 mb-4">
         <div className="flex justify-between text-[10px] font-bold uppercase tracking-wider opacity-60">
             <span>Progress</span>
             <span>{client.progress}%</span>
@@ -63,11 +65,15 @@ export default function ClientCard({ client, isActive, onClick }: Props) {
       </div>
 
       {/* Footer info */}
-      <div className={`mt-4 pt-4 border-t flex items-center gap-2 text-xs font-medium ${isActive ? 'border-gray-800 text-gray-400' : 'border-gray-50 text-gray-400'}`}>
+      <div className={`mt-auto pt-4 border-t flex items-center gap-2 text-xs font-medium ${isActive ? 'border-gray-800 text-gray-400' : 'border-gray-50 text-gray-400'}`}>
         <Activity size={12} />
         <span>Активность: {client.lastActivity}</span>
       </div>
 
     </div>
   );
-}
+});
+
+ClientCard.displayName = 'ClientCard';
+
+export default ClientCard;

@@ -1,15 +1,17 @@
-from django.urls import path
-from .views import MyProfileView, WorkoutListView, WorkoutDetailView, MediaUploadView, CoachClientListView
+# clients/urls.py
+from rest_framework.routers import DefaultRouter
+from .views import (
+    ClientViewSet, WorkSessionViewSet, SessionCommentViewSet,
+    CategoryViewSet, TagViewSet, AttributeViewSet, ClientAttributeViewSet
+)
 
-urlpatterns = [
-    # Профиль
-    path('profile/', MyProfileView.as_view(), name='my-profile'),
-    
-    # Тренировки
-    path('workouts/', WorkoutListView.as_view(), name='workout-list'),
-    path('workouts/<int:pk>/', WorkoutDetailView.as_view(), name='workout-detail'),
-    
-    # Загрузка (Мясо)
-    path('media/upload/', MediaUploadView.as_view(), name='media-upload'),
-    path('coach/clients/', CoachClientListView.as_view(), name='coach-client-list'),
-]
+router = DefaultRouter()
+router.register(r'clients', ClientViewSet, basename='clients')
+router.register(r'sessions', WorkSessionViewSet, basename='sessions')
+router.register(r'comments', SessionCommentViewSet, basename='comments')
+router.register(r'categories', CategoryViewSet)
+router.register(r'tags', TagViewSet)
+router.register(r'attributes', AttributeViewSet)
+router.register(r'client-attributes', ClientAttributeViewSet, basename='client-attributes')
+
+urlpatterns = router.urls

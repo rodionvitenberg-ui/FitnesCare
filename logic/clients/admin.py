@@ -1,143 +1,136 @@
 from django.contrib import admin
-from django.utils.html import format_html
-from simple_history.admin import SimpleHistoryAdmin
+from django import forms
+from django.utils.safestring import mark_safe
 from .models import (
-    Program, 
-    ClientStatus, 
-    BodyMetric, 
-    ClientProfile, 
-    MetricLog, 
-    WorkoutSession, 
-    MediaReport
+    Category, Client, Attribute, ClientAttribute, 
+    Tag, WorkSession, SessionComment
 )
 
-# --- INLINES (Вложенные элементы) ---
+# === Справочники ===
 
-class MetricLogInline(admin.TabularInline):
-    """
-    Позволяет добавлять замеры (вес, талия) прямо внутри профиля клиента.
-    """
-    model = MetricLog
-    extra = 1
-    readonly_fields = ('date',)
-    classes = ('collapse',) # Свернуто по умолчанию, чтобы не мешать
+@admin.register(Category)
+class CategoryAdmin(admin.ModelAdmin):
+    list_display = ('name', 'slug', 'icon_preview')
+    search_fields = ('name',)
+    # prepopulated_fields больше не нужен для slug, если мы не редактируем его вручную, 
+    # но обычно удобно оставить:
+    prepopulated_fields = {'slug': ('name',)}
 
-class MediaReportInline(admin.TabularInline):
-    """
-    Показывает загруженные фото/видео внутри тренировки.
-    """
-    model = MediaReport
-    extra = 0
-    readonly_fields = ('preview_media',) # См. метод ниже
-    
-    def preview_media(self, obj):
-        if obj.file:
-            # Если это картинка - покажем миниатюру
-            if obj.media_type == 'image':
-                return format_html('<img src="{}" style="height: 100px; border-radius: 5px;" />', obj.file.url)
-            # Если видео - ссылку
-            return format_html('<a href="{}" target="_blank">🎥 Смотреть видео</a>', obj.file.url)
+    def icon_preview(self, obj):
+        if obj.icon:
+            # Проверка расширения, чтобы не ломать админку SVG
+            return mark_safe(f'<img src="{obj.icon.url}" style="max-height: 30px; max-width: 30px;" />')
         return "-"
-    preview_media.short_description = "Превью"
+    icon_preview.short_description = "Иконка"
 
-# --- MAIN ADMIN CLASSES ---
 
-@admin.register(ClientProfile)
-class ClientProfileAdmin(admin.ModelAdmin):
-    list_display = ('full_name', 'coach_link', 'program', 'get_statuses', 'is_active', 'created_at')
-    list_filter = ('program', 'statuses', 'is_active', 'coach')
-    search_fields = ('full_name', 'user__email', 'user__username', 'coach__username')
-    autocomplete_fields = ['user', 'coach'] # Удобный поиск, если юзеров тысячи
-    inlines = [MetricLogInline]
+@admin.register(Tag)
+class TagAdmin(admin.ModelAdmin):
+    list_display = ('name', 'slug', 'color', 'icon_preview')
+    search_fields = ('name', 'slug')
+    list_editable = ('color',)
+    prepopulated_fields = {'slug': ('name',)}
+
+    def icon_preview(self, obj):
+        if obj.icon:
+            return mark_safe(f'<img src="{obj.icon.url}" style="max-height: 30px; max-width: 30px;" />')
+        return "-"
+    icon_preview.short_description = "Иконка"
+
+
+@admin.register(Attribute)
+class AttributeAdmin(admin.ModelAdmin):
+    list_display = ('name', 'attr_type', 'slug', 'icon_preview')
+    list_filter = ('attr_type',)
+    search_fields = ('name',)
+    prepopulated_fields = {'slug': ('name',)}
+
+    def icon_preview(self, obj):
+        if obj.icon:
+            return mark_safe(f'<img src="{obj.icon.url}" style="max-height: 30px; max-width: 30px;" />')
+        return "-"
+    icon_preview.short_description = "Иконка"
+
+
+# === Вспомогательные инлайны ===
+
+class ClientAttributeInline(admin.TabularInline):
+    """Атрибуты клиента (Вес, Рост) прямо в карточке клиента"""
+    model = ClientAttribute
+    extra = 1
+    autocomplete_fields = ['attribute']
+
+class SessionCommentInline(admin.TabularInline):
+    """Чат внутри сессии. Позволяет видеть переписку в админке."""
+    model = SessionComment
+    extra = 0
+    readonly_fields = ('created_at',)
+    fields = ('author', 'text', 'attachment', 'created_at')
+
+class WorkSessionInline(admin.TabularInline):
+    """Список последних тренировок в карточке клиента"""
+    model = WorkSession
+    extra = 0
+    fields = ('title', 'date', 'status')
+    show_change_link = True
+    ordering = ('-date',)
+
+
+# === Основные модели ===
+
+@admin.register(Client)
+class ClientAdmin(admin.ModelAdmin):
+    list_display = ('name', 'avatar_preview', 'coach', 'user_email', 'is_active', 'created_at')
+    list_filter = ('is_active', 'categories', 'tags', 'coach')
+    search_fields = ('name', 'user__email', 'coach__username', 'coach__email')
+    autocomplete_fields = ['categories', 'tags', 'coach', 'user']
+    inlines = [ClientAttributeInline, WorkSessionInline]
     
     fieldsets = (
         ('Основное', {
-            'fields': ('user', 'coach', 'full_name', 'is_active')
+            'fields': ('coach', 'user', 'name', 'photo', 'is_active')
         }),
-        ('Анкета', {
-            'fields': ('birth_date', 'gender', 'program')
-        }),
-        ('CRM и Статусы', {
-            'fields': ('statuses', 'coach_notes')
+        ('Классификация', {
+            'fields': ('categories', 'tags'),
         }),
     )
 
-    def coach_link(self, obj):
-        return obj.coach.username
-    coach_link.short_description = "Тренер"
+    def avatar_preview(self, obj):
+        if obj.photo:
+            return mark_safe(f'<img src="{obj.photo.url}" style="border-radius: 50%; width: 40px; height: 40px; object-fit: cover;" />')
+        return "-"
+    avatar_preview.short_description = "Фото"
 
-    def get_statuses(self, obj):
-        # Рисуем цветные плашки для статусов (VIP, Должник)
-        html = []
-        for status in obj.statuses.all():
-            color = status.color_code or '#ccc'
-            html.append(
-                f'<span style="background-color: {color}; color: #000; padding: 2px 6px; border-radius: 4px; font-weight: bold; margin-right: 4px;">{status.name}</span>'
-            )
-        return format_html("".join(html))
-    get_statuses.short_description = "Статусы"
+    def user_email(self, obj):
+        return obj.user.email if obj.user else "-"
+    user_email.short_description = "Email (Login)"
 
 
-@admin.register(WorkoutSession)
-class WorkoutSessionAdmin(SimpleHistoryAdmin): # Используем историю изменений
-    list_display = ('title', 'client', 'date_formatted', 'status_badge', 'event_type')
-    list_filter = ('status', 'event_type', 'scheduled_at')
-    search_fields = ('title', 'client__full_name', 'description')
-    date_hierarchy = 'scheduled_at'
-    inlines = [MediaReportInline]
-    
+@admin.register(WorkSession)
+class WorkSessionAdmin(admin.ModelAdmin):
+    list_display = ('title', 'client', 'date', 'status')
+    list_filter = ('status', 'date', 'client__coach')
+    search_fields = ('title', 'description', 'client__name', 'client__user__email')
+    date_hierarchy = 'date'
+    autocomplete_fields = ['client']
+    inlines = [SessionCommentInline] # Чат прямо внутри тренировки!
+
     fieldsets = (
-        ('Кто и Когда', {
-            'fields': ('client', 'scheduled_at', 'status', 'event_type')
+        ('Детали сессии', {
+            'fields': ('client', 'title', 'date', 'status', 'attachment')
         }),
-        ('Задание', {
-            'fields': ('title', 'description')
-        }),
-        ('Результат', {
-            'fields': ('completed_at', 'client_comment', 'coach_feedback')
+        ('Контент', {
+            'fields': ('description', 'client_feedback')
         }),
     )
-
-    def date_formatted(self, obj):
-        return obj.scheduled_at.strftime("%d.%m %H:%M")
-    date_formatted.short_description = "Время"
-
-    def status_badge(self, obj):
-        colors = {
-            'planned': 'gray',
-            'done': 'blue',
-            'reviewed': 'green',
-            'missed': 'red',
-        }
-        return format_html(
-            '<span style="color: {}; font-weight: bold;">{}</span>',
-            colors.get(obj.status, 'black'),
-            obj.get_status_display()
-        )
-    status_badge.short_description = "Статус"
-
-
-# --- CONFIGURATION ADMINS ---
-
-@admin.register(Program)
-class ProgramAdmin(admin.ModelAdmin):
-    list_display = ('name', 'sort_order')
-    prepopulated_fields = {'slug': ('name',)} # Авто-заполнение слага
-    ordering = ('sort_order',)
-
-@admin.register(ClientStatus)
-class ClientStatusAdmin(admin.ModelAdmin):
-    list_display = ('name', 'color_preview')
-    prepopulated_fields = {'slug': ('name',)}
     
-    def color_preview(self, obj):
-        return format_html(
-            '<div style="width: 20px; height: 20px; background-color: {}; border: 1px solid #ccc;"></div>',
-            obj.color_code
-        )
-    color_preview.short_description = "Цвет"
-
-@admin.register(BodyMetric)
-class BodyMetricAdmin(admin.ModelAdmin):
-    list_display = ('name', 'unit', 'is_chartable', 'sort_order')
-    list_editable = ('sort_order',)
+    # Регистрация модели комментариев отдельно, если нужно искать по всем сообщениям
+@admin.register(SessionComment)
+class SessionCommentAdmin(admin.ModelAdmin):
+    list_display = ('short_text', 'session', 'author', 'created_at')
+    search_fields = ('text', 'author__username')
+    list_filter = ('created_at',)
+    
+    def short_text(self, obj):
+        return obj.text[:50] + "..." if len(obj.text) > 50 else obj.text
+    short_text.short_description = "Текст"

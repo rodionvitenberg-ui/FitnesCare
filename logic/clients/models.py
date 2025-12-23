@@ -1,216 +1,184 @@
 from django.db import models
 from django.conf import settings
-from django.core.exceptions import ValidationError
-from simple_history.models import HistoricalRecords
-import uuid
 
-# --- СПРАВОЧНИКИ (Настройки Коуча) ---
-
-class Program(models.Model):
+class Category(models.Model):
     """
-    Бывшая Category. Программа тренировок / Цель.
-    Пример: "Сушка (Fat Loss)", "Набор массы", "Реабилитация".
+    Категории клиентов или программ (например: 'Похудение', 'Набор массы', 'Реабилитация').
     """
-    name = models.CharField(max_length=200, verbose_name="Название программы")
-    slug = models.SlugField(max_length=200, unique=True)
-    description = models.TextField(blank=True, verbose_name="Описание стратегии")
+    slug = models.SlugField(primary_key=True)
+    name = models.CharField(max_length=50, verbose_name="Название категории")
+    description = models.TextField(blank=True, verbose_name="Описание")
     
-    # Nike Style: Красивая обложка программы
-    cover_image = models.ImageField(
-        upload_to='programs/', 
-        null=True, 
-        blank=True, 
-        verbose_name="Обложка программы (Dark Theme)"
-    )
-    
-    sort_order = models.IntegerField(default=0, verbose_name="Порядок")
-
-    class Meta:
-        verbose_name = "Программа / Цель"
-        verbose_name_plural = "Программы"
-        ordering = ['sort_order']
+    # Иконка (поддержка SVG/PNG)
+    icon = models.FileField(upload_to='categories/icons/', null=True, blank=True, verbose_name="Иконка")
 
     def __str__(self):
         return self.name
 
-class ClientStatus(models.Model):
-    """
-    Бывший Tag. CRM-статусы для управления бизнесом.
-    Пример: "VIP", "Должник", "Травма колена".
-    """
-    name = models.CharField(max_length=100, unique=True, verbose_name="Статус")
-    slug = models.SlugField(max_length=100, unique=True)
-    
-    # Цвет плашки для UI (Nike style: Red for overdue, Green for paid)
-    color_code = models.CharField(max_length=7, default="#FFFFFF", verbose_name="HEX цвет")
-    
-    icon = models.FileField(upload_to='status_icons/', blank=True, null=True)
-
     class Meta:
-        verbose_name = "CRM-Статус"
-        verbose_name_plural = "CRM-Статусы"
+        verbose_name = "Категория / Программа"
+        verbose_name_plural = "Категории"
+
+
+class Tag(models.Model):
+    """
+    Теги для быстрой маркировки (например: 'VIP', 'Травма колена', 'Должник').
+    """
+    slug = models.SlugField(primary_key=True)
+    name = models.CharField(max_length=50, verbose_name="Название тега")
+    color = models.CharField(max_length=7, default="#808080", verbose_name="Цвет (HEX)") # Для UI
+    
+    # Вернули иконку
+    icon = models.FileField(upload_to='tags/icons/', null=True, blank=True, verbose_name="Иконка")
 
     def __str__(self):
         return self.name
 
-class BodyMetric(models.Model):
-    """
-    Бывший Attribute. Метрики тела.
-    Пример: "Вес (кг)", "Талия (см)", "Жим лежа (кг)".
-    """
-    name = models.CharField(max_length=100, unique=True, verbose_name="Метрика")
-    unit = models.CharField(max_length=20, verbose_name="Ед. изм.", help_text="кг, см, %")
-    is_chartable = models.BooleanField(default=True, verbose_name="Строить график?")
-    sort_order = models.IntegerField(default=0)
-
     class Meta:
-        verbose_name = "Метрика тела"
-        verbose_name_plural = "Метрики тела"
-        ordering = ['sort_order']
+        verbose_name = "Тег"
+        verbose_name_plural = "Теги"
+
+
+class Attribute(models.Model):
+    """
+    Справочник атрибутов (EAV).
+    Например: 'Рост', 'Вес', 'Обхват груди', 'Целевой калораж'.
+    """
+    slug = models.SlugField(primary_key=True)
+    name = models.CharField(max_length=50, verbose_name="Название атрибута")
+    
+    TYPE_CHOICES = [
+        ('text', 'Текст'),
+        ('number', 'Число'),
+        ('date', 'Дата'),
+        ('boolean', 'Да/Нет'),
+    ]
+    attr_type = models.CharField(max_length=10, choices=TYPE_CHOICES, default='text')
+    
+    # Вернули иконку
+    icon = models.FileField(upload_to='attributes/icons/', null=True, blank=True, verbose_name="Иконка")
 
     def __str__(self):
-        return f"{self.name} ({self.unit})"
+        return self.name
 
-# --- ОСНОВНЫЕ СУЩНОСТИ ---
+    class Meta:
+        verbose_name = "Справочник атрибутов"
+        verbose_name_plural = "Справочник атрибутов"
 
-class ClientProfile(models.Model):
+
+class Client(models.Model):
     """
-    Бывший Pet. Профиль атлета.
-    Связывает Login (User) и Coach (Admin).
+    Карточка Клиента.
+    Связывает бизнес-логику (Коуч, Параметры) с аккаунтом входа (User).
     """
-    # Связь с аккаунтом для входа (создается автоматически)
+    # Связь с аккаунтом для входа (OneToOne)
+    # null=True временно, чтобы создание через админку не ломалось до работы Сигналов
     user = models.OneToOneField(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name='client_profile',
-        verbose_name="Аккаунт входа"
+        null=True, blank=True,
+        verbose_name="Аккаунт для входа"
     )
-    
-    # Кто ведет этого клиента (Коуч)
+
+    # Кто ведет этого клиента (Коуч/Владелец)
     coach = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.PROTECT,
+        on_delete=models.CASCADE,
         related_name='clients',
         verbose_name="Тренер"
     )
 
-    # Анкета
-    full_name = models.CharField(max_length=255, verbose_name="ФИО Атлета")
-    birth_date = models.DateField(null=True, blank=True, verbose_name="Дата рождения")
+    name = models.CharField(max_length=100, verbose_name="Имя клиента (Display Name)")
+    photo = models.ImageField(upload_to='clients/avatars/', null=True, blank=True, verbose_name="Фото")
     
-    GENDER_CHOICES = [('M', 'Мужской'), ('F', 'Женский')]
-    gender = models.CharField(max_length=1, choices=GENDER_CHOICES, verbose_name="Пол")
-    
-    # Настройки тренировок
-    program = models.ForeignKey(
-        Program, 
-        on_delete=models.SET_NULL, 
-        null=True, 
-        related_name='athletes', 
-        verbose_name="Текущая программа"
-    )
-    statuses = models.ManyToManyField(ClientStatus, blank=True, verbose_name="CRM Теги")
-    
-    # Заметки тренера (скрытые от клиента)
-    coach_notes = models.TextField(blank=True, verbose_name="Приватные заметки тренера")
+    # Таксономия
+    categories = models.ManyToManyField(Category, blank=True, related_name='clients', verbose_name="Программы")
+    tags = models.ManyToManyField(Tag, blank=True, related_name='clients', verbose_name="Теги")
 
+    # Технические поля
     created_at = models.DateTimeField(auto_now_add=True)
-    is_active = models.BooleanField(default=True, verbose_name="Клиент активен")
-
-    class Meta:
-        verbose_name = "Профиль Клиента"
-        verbose_name_plural = "База Клиентов"
+    is_active = models.BooleanField(default=True, verbose_name="Активен")
 
     def __str__(self):
-        return self.full_name
-
-class MetricLog(models.Model):
-    """
-    Бывший PetAttribute, но теперь с историей (Лог замеров).
-    Хранит прогресс: 01.01 - 80кг, 01.02 - 78кг.
-    """
-    client = models.ForeignKey(ClientProfile, on_delete=models.CASCADE, related_name='metrics_log')
-    metric = models.ForeignKey(BodyMetric, on_delete=models.CASCADE)
-    value = models.DecimalField(max_digits=10, decimal_places=2, verbose_name="Значение")
-    date = models.DateField(auto_now_add=True, verbose_name="Дата замера")
+        return self.name
 
     class Meta:
-        verbose_name = "Замер"
-        verbose_name_plural = "Журнал прогресса"
+        verbose_name = "Клиент"
+        verbose_name_plural = "Клиенты"
+        ordering = ['-created_at']
+
+
+class ClientAttribute(models.Model):
+    """
+    Значения атрибутов для конкретного клиента.
+    Client: Иван -> Attribute: Вес -> Value: 85
+    """
+    client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name='attributes')
+    attribute = models.ForeignKey(Attribute, on_delete=models.CASCADE)
+    value = models.CharField(max_length=255, verbose_name="Значение")
+
+    class Meta:
+        unique_together = ('client', 'attribute')
+        verbose_name = "Параметр клиента"
+        verbose_name_plural = "Параметры клиента"
+
+
+class WorkSession(models.Model):
+    """
+    Основная единица работы.
+    """
+    STATUS_CHOICES = [
+        ('planned', 'Запланировано'),
+        ('completed', 'Выполнено'),
+        ('cancelled', 'Отменено'),
+        ('missed', 'Пропущено'),
+    ]
+
+    client = models.ForeignKey(Client, on_delete=models.CASCADE, related_name='sessions', verbose_name="Клиент")
+    
+    title = models.CharField(max_length=200, verbose_name="Название")
+    description = models.TextField(blank=True, verbose_name="Задание / План")
+    
+    # Быстрый отчет (если не нужен чат)
+    client_feedback = models.TextField(blank=True, verbose_name="Отчет клиента")
+    
+    # Вложение (файл к самой тренировке, например PDF программы)
+    attachment = models.FileField(upload_to='sessions/attachments/', null=True, blank=True, verbose_name="Вложение")
+
+    date = models.DateTimeField(verbose_name="Дата и время")
+    
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='planned', verbose_name="Статус")
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.title} ({self.client.name})"
+
+    class Meta:
+        verbose_name = "Сессия / Тренировка"
+        verbose_name_plural = "Сессии"
         ordering = ['-date']
 
-class WorkoutSession(models.Model):
-    """
-    Бывший HealthEvent. Единица смысла - Тренировка или Событие.
-    """
-    client = models.ForeignKey(
-        ClientProfile, 
-        on_delete=models.CASCADE, 
-        related_name='workouts', 
-        verbose_name="Атлет"
-    )
-    
-    EVENT_TYPES = [
-        ('workout', '🏋️ Тренировка'),
-        ('cardio', '🏃 Кардио'),
-        ('meal', '🥦 Питание / БЖУ'),
-        ('checkin', '📸 Чекин формы'),
-        ('payment', '💰 Оплата'),
-    ]
-    event_type = models.CharField(max_length=20, choices=EVENT_TYPES, default='workout')
-    
-    STATUS_CHOICES = [
-        ('planned', 'План 📅'),
-        ('done', 'Сделано ✅'),
-        ('reviewed', 'Проверено Коучем 🔥'), # Финальный статус
-        ('missed', 'Пропущено ❌'),
-    ]
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='planned')
 
-    title = models.CharField(max_length=255, verbose_name="Тема (День ног)")
-    description = models.TextField(verbose_name="План тренировки (Задание)", help_text="Упражнения, подходы, веса")
+class SessionComment(models.Model):
+    """
+    Чат внутри конкретной сессии.
+    """
+    session = models.ForeignKey(WorkSession, on_delete=models.CASCADE, related_name='comments')
+    author = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, verbose_name="Автор")
     
-    # Важные даты
-    scheduled_at = models.DateTimeField(verbose_name="Дата и время тренировки")
-    completed_at = models.DateTimeField(null=True, blank=True, verbose_name="Когда выполнил")
+    text = models.TextField(verbose_name="Сообщение")
+    attachment = models.FileField(upload_to='comments/', null=True, blank=True, verbose_name="Файл")
     
-    # Коммуникация (Контекстный чат)
-    client_comment = models.TextField(blank=True, verbose_name="Отчет клиента (Ощущения)")
-    coach_feedback = models.TextField(blank=True, verbose_name="Ответ тренера")
-    
-    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
-    history = HistoricalRecords()
-
-    class Meta:
-        verbose_name = "Тренировка / Событие"
-        verbose_name_plural = "Календарь событий"
-        ordering = ['-scheduled_at']
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_read = models.BooleanField(default=False)
 
     def __str__(self):
-        return f"{self.title} ({self.client.full_name})"
-
-class MediaReport(models.Model):
-    """
-    Бывший HealthEventAttachment.
-    Фото/Видео отчеты. Загружаются в S3/Cloudflare.
-    """
-    workout = models.ForeignKey(
-        WorkoutSession, 
-        on_delete=models.CASCADE, 
-        related_name='media',
-        verbose_name="Тренировка"
-    )
-    file = models.FileField(
-        upload_to='workouts/%Y/%m/%d/',
-        verbose_name="Видео/Фото файл"
-    )
-    media_type = models.CharField(
-        max_length=10, 
-        choices=[('video', 'Видео'), ('image', 'Фото')],
-        default='image'
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
+        return f"Comment by {self.author} on {self.session}"
 
     class Meta:
-        verbose_name = "Медиа-отчет"
-        verbose_name_plural = "Медиа-отчеты"
+        ordering = ['created_at']
+        verbose_name = "Комментарий к сессии"
+        verbose_name_plural = "Комментарии к сессиям"
